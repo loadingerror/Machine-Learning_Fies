@@ -1,0 +1,166 @@
+---
+title: "Trabalho de Avaliação de Disciplina - Análise Preditiva"
+author: "Marina Ferreira"
+date: '2021'
+output:
+  pdf_document:
+    latex_engine: pdflatex
+  html_document:
+    df_print: paged
+subtitle: Classificação dos estudantes do Fies - Estudo de Caso
+linestretch: 1
+---
+
+## Introdução.
+
+### O Projeto consiste em consiste em classificar em “bons” ou “mau-pagadores” os alunos que participam do programa do Fundo de Financiamento Estudantil(Fies).O Fies é um programa federal estudantil que consiste em dar crédito para que o estudante possa financiar semestres da sua faculdade não gratuitada Lei 10.260/2001. São elegíveis os estudantes matriculados em cursos superiores que tenham avaliação positiva MEC.  
+
+### Para resolver essa  questão de classificação, testarei modelos preditivos tendo como premissa que o __FALSO__ __NEGATIVO__ tem um peso grande para o Gestor do Fundo. Para essa **Classificação** dispomos de um banco de dados com variáveis categóricas e numéricas dos respectivos participantes do programa e, a partir daí farei testes com modelos aprendidos em classe e discorrerei sobre o que apresentar o melhor e o segundo melhor resultado.
+
+
+## PARTE 1 - Sumário Executivo:  
+
+### Sobre os modelos e seus resultados.
+
+### Após limpeza e organização dos dados testei o modelo de árvore decisória com todas as variáveis ajustadas e sem algumas variáveis também. O modelo não apresentou robustez ou eficácia no resultado, sendo descartado logo num primeiro momento. Também foi testado: Regressão Logistic com cross validation e RL com regularização L1 (LASSO).
+
+### O modelo que apresentou o melhor desempenho para resolver essa classificação foi o modelo **Random** **Forest**, ou Floresta Aleatória em português. O modelo conta com um cutoff = c(0.74, 0.26), retornando 500 árvores de decisão, acurácia de 59% e sensibilidade de 94,9%. Utilizei uma técnica de cross-validation dividindo a base em base de treino e base de teste (Validation Set). Testei o modelo com todas as variáveis, depois analisei o peso delas e retirei algumas. Olhei as variáveis e achei 3 que retirando, apresentaram um resultado melhor: Renda Brutal Mensal por Pessoa, Renda Bruta Mensal por Familia e número de semestes financiados, sendo as duas primeiras multicolineares. Setei uma semente, pois no algoritmo de RF tem alguns processos aleatorios, então dá controlar melhor utilizando essa técnica. Matriz de Confusão um pouco melhor no Verdadeiro Positivo e no Falso Negativo (errou menos). A Acurácia teve quase 1% de aumento, que pesou para a escolha do modelo. O modelo apresentou estabilidade ao setar sementes diferentes e num geral, funciona com bastante eficiencia em um grande conjunto de dados, apresenta uma boa precisão e apresenta menor risco de overfiting.
+
+### Modelo alternativo - O segundo modelo eleito para fazer a classificação foi o Modelo de Regressao Logistica com técnica de regularização norma L1 (LASSO) e cross-validation (para acharmos o melhor Lambda, melhorar a qualidade da minha amostra). Nesse modelo, a sensibilidade apresentada foi a mesma apresentada na Random Forest(94.78%), mas a Acurácia apresentada foi menor. A matriz de confusão teve um desempenho abaixo do modelo de RF. Apesar de a RL apresentar uma explicabilidade boa (olhando pesos das variáveis, por exemplo), o RF apresentou um resultado melhor, com mais interpretabilidade e maior acuracia (Quase 1% a mais). O modelo também apresentou estabilidade ao setar sementes diferentes.
+
+
+```{r echo=FALSE, message=FALSE}
+
+library(readr)
+library(dplyr)
+estudantes_fies <- read.csv("dados_trab_final_AP.csv", dec = ",", sep=';')
+estudantes_fies <- na.omit(estudantes_fies)
+estudantes_fies$SG_SEXO <- as.factor(estudantes_fies$SG_SEXO)
+estudantes_fies$DS_RACA_COR <- as.factor(estudantes_fies$DS_RACA_COR)
+estudantes_fies$SG_UF <- as.factor(estudantes_fies$SG_UF)
+estudantes_fies$DS_ESTADO_CIVIL <- as.factor(estudantes_fies$DS_ESTADO_CIVIL)
+estudantes_fies$ST_DEFICIENCIA <- as.factor(estudantes_fies$ST_DEFICIENCIA)
+estudantes_fies$ST_ENSINO_MEDIO_ESCOLA_PUBLICA <- as.factor(estudantes_fies$ST_ENSINO_MEDIO_ESCOLA_PUBLICA)
+estudantes_fies$ST_BOLSISTA_PROUNI <- as.factor(estudantes_fies$ST_BOLSISTA_PROUNI)
+estudantes_fies$VL_RENDA_FAMILIAR_BRUTA_MENSAL <- as.numeric(estudantes_fies$VL_RENDA_FAMILIAR_BRUTA_MENSAL)
+estudantes_fies$VL_RENDA_PESSOA_BRUTA_MENSAL <- as.numeric(estudantes_fies$VL_RENDA_PESSOA_BRUTA_MENSAL)
+estudantes_fies$VL_RENDA_PERCAPITA <- as.numeric(estudantes_fies$VL_RENDA_PERCAPITA)
+estudantes_fies$VL_FINANCIAMENTO <- as.numeric(estudantes_fies$VL_FINANCIAMENTO)
+estudantes_fies$ST_INADIMPLENCIA <- as.factor(estudantes_fies$ST_INADIMPLENCIA)
+
+```
+## PARTE 2 - Saídas do R:
+
+### Saída das bases de treino/teste:
+```{r echo=FALSE, message=FALSE}
+set.seed(563)
+idx_treino <- sample(1:nrow(estudantes_fies), 0.8*nrow(estudantes_fies)) #80/20
+base_treino <- estudantes_fies[idx_treino,]
+idx_teste <- c(1:nrow(estudantes_fies))[-idx_treino]
+base_teste <- estudantes_fies[idx_teste,]
+summary(base_treino)
+# transformando variáveis binárias em variáveis dummy (se houver)
+# adequando formato dos dados ao pacote glmnet
+x_treino <- data.matrix(base_treino[,c(1, 2, 3, 4, 5, 6, 7, 8, 11, 13)])
+x_teste <- data.matrix(base_teste[,c(1, 2, 3, 4, 5, 6, 7, 8, 11, 13)])
+y_treino <- base_treino$ST_INADIMPLENCIA
+y_teste <- base_teste$ST_INADIMPLENCIA
+```
+
+### 1. Modelo de Regressao Logistica com técnica de regularização norma L1 (LASSO) e cross-validation. Segundo melhor modelo.
+```{r echo=FALSE, message=FALSE}
+library(glmnet)
+# encontrando o melhor lambda usando cross-validation
+set.seed(53)
+cv.lasso <- cv.glmnet(x_treino, y_treino, alpha = 1, family = "binomial")
+# ajustando o melhor modelo usando o o melhor lambda
+model <- glmnet(x_treino, y_treino, alpha = 1, family = "binomial", lambda = cv.lasso$lambda.min)
+# coeficientes de regressao - quais variaveis vao para o modelo final?
+coef(model)
+# Predicoes na base de teste
+# maior do que 0.33 chance de nao pagar - mal pagador - Modelo utilizado - regressao logistica com tecnica de confusion Matrix para verificar a sensibilidade, cross-validation (achando o melhor lambda)
+predicted <- ifelse(predict(model, newx = x_teste, type="response") > 0.3465, "S", "N")
+library(caret)
+confusionMatrix(as.factor(predicted), base_teste$ST_INADIMPLENCIA, positive = "S")
+```
+
+
+### 2. Random Forest:
+```{r echo=FALSE, message=FALSE}
+library(randomForest)
+set.seed(66613)
+# sempre utilizar seed para reproducibilidade
+modelo <- randomForest(ST_INADIMPLENCIA ~ ., data = base_treino, 
+                       cutoff=c(0.74, 0.26))
+print(modelo)
+predicted <- predict(modelo, base_teste)
+library(caret)
+caret::confusionMatrix(predicted, base_teste$ST_INADIMPLENCIA, 
+                       positive = "S")
+```
+
+```{r echo=TRUE, eval=FALSE}
+# Organizando o Dataset para trabalhar os modelos:
+
+library(readr)
+library(dplyr)
+estudantes_fies <- read.csv("dados_trab_final_AP.csv", dec = ",", sep=';')
+estudantes_fies <- na.omit(estudantes_fies)
+estudantes_fies$SG_SEXO <- as.factor(estudantes_fies$SG_SEXO)
+estudantes_fies$DS_RACA_COR <- as.factor(estudantes_fies$DS_RACA_COR)
+estudantes_fies$SG_UF <- as.factor(estudantes_fies$SG_UF)
+estudantes_fies$DS_ESTADO_CIVIL <- as.factor(estudantes_fies$DS_ESTADO_CIVIL)
+estudantes_fies$ST_DEFICIENCIA <- as.factor(estudantes_fies$ST_DEFICIENCIA)
+estudantes_fies$ST_ENSINO_MEDIO_ESCOLA_PUBLICA <- as.factor(estudantes_fies$
+                                                              ST_ENSINO_MEDIO_ESCOLA_PUBLICA)
+estudantes_fies$ST_BOLSISTA_PROUNI <- as.factor(estudantes_fies$
+                                                  ST_BOLSISTA_PROUNI)
+estudantes_fies$VL_RENDA_FAMILIAR_BRUTA_MENSAL <- as.numeric(estudantes_fies$
+                                                               VL_RENDA_FAMILIAR_BRUTA_MENSAL)
+estudantes_fies$VL_RENDA_PESSOA_BRUTA_MENSAL <- as.numeric(estudantes_fies$
+                                                             VL_RENDA_PESSOA_BRUTA_MENSAL)
+estudantes_fies$VL_RENDA_PERCAPITA <- as.numeric(estudantes_fies$VL_RENDA_PERCAPITA)
+estudantes_fies$VL_FINANCIAMENTO <- as.numeric(estudantes_fies$VL_FINANCIAMENTO)
+estudantes_fies$ST_INADIMPLENCIA <- as.factor(estudantes_fies$ST_INADIMPLENCIA)
+
+# Montando a base de treino:
+
+set.seed(563)
+idx_treino <- sample(1:nrow(estudantes_fies), 0.8*nrow(estudantes_fies)) #80/20
+base_treino <- estudantes_fies[idx_treino,]
+idx_teste <- c(1:nrow(estudantes_fies))[-idx_treino]
+base_teste <- estudantes_fies[idx_teste,]
+summary(base_treino)
+# transformando variáveis binárias em variáveis dummy (se houver)
+# adequando formato dos dados ao pacote glmnet
+x_treino <- data.matrix(base_treino[,c(1, 2, 3, 4, 5, 6, 7, 8, 11, 13)])
+x_teste <- data.matrix(base_teste[,c(1, 2, 3, 4, 5, 6, 7, 8, 11, 13)])
+y_treino <- base_treino$ST_INADIMPLENCIA
+y_teste <- base_teste$ST_INADIMPLENCIA
+
+### 1. Modelo de Regressao Logistica com técnica de regularização 
+###norma L1 (LASSO) e cross-validation. Segundo melhor modelo.
+
+library(glmnet)
+
+set.seed(53)
+cv.lasso <- cv.glmnet(x_treino, y_treino, alpha = 1, family = "binomial")
+model <- glmnet(x_treino, y_treino, alpha = 1, family = "binomial", lambda = cv.lasso$lambda.min)
+coef(model)
+predicted <- ifelse(predict(model, newx = x_teste, type="response") > 0.3465, "S", "N")
+library(caret)
+confusionMatrix(as.factor(predicted), base_teste$ST_INADIMPLENCIA, positive = "S")
+
+
+# Random Forest
+
+library(randomForest)
+set.seed(66613)
+modelo <- randomForest(ST_INADIMPLENCIA ~ ., data = base_treino, 
+                       cutoff=c(0.74, 0.26))
+print(modelo)
+predicted <- predict(modelo, base_teste)
+library(caret)
+caret::confusionMatrix(predicted, base_teste$ST_INADIMPLENCIA, 
+                       positive = "S")
+```
